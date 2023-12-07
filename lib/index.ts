@@ -1,6 +1,5 @@
 import { Buffer } from 'buffer/';
-import pkijs from 'pkijs';
-import asn1js from 'asn1js';
+import * as pkijs from 'pkijs';
 const jksJs = require('jks-js');
 
 export interface PEM { cert: string; key: string; };
@@ -34,11 +33,13 @@ export default class Jks {
    * @param password 私钥密码，可不传
    * @returns {Jks}
    */
-  static fromPEM(cert: string, key: string, password: string) {
+  static fromPEM(cert: string, key: string, password: string | null = null) {
     const jks = new Jks();
     jks.cert = cert;
     jks.key = key;
-    jks.password = password;
+    if (password) {
+      jks.password = password;
+    }
 
     return jks;
   }
@@ -124,16 +125,17 @@ export default class Jks {
           // base64 decode
           const pemBuffer = Buffer.from(pem, 'base64');
 
-          // parse commonName from pem by asn1js
-          const asn1 = asn1js.fromBER(pemBuffer.buffer);
-          const certPem = new pkijs.Certificate({ schema: asn1.result });
-          const commonNameTypeValue = certPem.subject.typesAndValues.find(
+          // pki.js parse cert
+          const parse = pkijs.Certificate.fromBER(pemBuffer.buffer);
+          // get commonName
+          const commonNameTypeValue = parse.subject.typesAndValues.find(
             (typeAndValue) => {
               console.log(typeAndValue.type);
               return typeAndValue.type === 'commonName';
             }
           );
           console.log(commonNameTypeValue);
+
           let commonName = 'unknown';
           if (commonNameTypeValue && commonNameTypeValue.value && commonNameTypeValue.value.blockLength)  {
             commonName = commonNameTypeValue.value.valueBlock.toString();
@@ -157,7 +159,7 @@ export default class Jks {
 
           // date, like '0x0000018c11d02835'
           // set to PEM's notBefore
-          let notBefore = certPem.notBefore.value;
+          let notBefore = parse.notBefore.value;
           if (!notBefore) {
             notBefore = new Date();
           }
@@ -175,7 +177,7 @@ export default class Jks {
           // base64 decode
           const privateKeyBinary = Buffer.from(privateKeyBlock, 'base64');
           // protect private key with password
-          const pkcs8Simpl = new pkijs.PrivateKeyInfo({ schema: asn1js.fromBER(privateKeyBinary).result });
+          const pkcs8Simpl = new pkijs.PrivateKeyInfo({ schema: privateKeyBinary });
           const pkcs8 = new pkijs.PKCS8ShroudedKeyBag({ parsedValue: pkcs8Simpl });
           await pkcs8.makeInternalValues({
             password: new TextEncoder().encode(password),
@@ -224,3 +226,4 @@ export default class Jks {
     });
   }
 }
+
